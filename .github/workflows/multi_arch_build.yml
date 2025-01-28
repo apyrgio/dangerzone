@@ -19,6 +19,7 @@ jobs:
           - linux/amd64
           - linux/arm64
     steps:
+      - uses: actions/checkout@v4
       # TODO: What is that?
       - name: Prepare
         run: |
@@ -50,7 +51,8 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: "{{defaultContext}}:dangerzone"
+          context: ./dangerzone/
+          file: Dockerfile
           ## TODO: May be needed in the future
           #provenance: false
           platforms: ${{ matrix.platform }}
