@@ -79,6 +79,12 @@ def main():
         help="Use the builder's cache to speed up the builds",
     )
     parser.add_argument(
+        "--platform",
+        choices=["linux/amd64", "linux/arm64"],
+        default=None,
+        help="The platform to build",
+    )
+    parser.add_argument(
         "--tag",
         default=None,
         help="Provide a custom tag for the image (for development only)",
@@ -108,6 +114,8 @@ def main():
             *cache_args,
             "-f",
             "Dockerfile",
+            "--platform",
+            args.platform,
             "--tag",
             image_name_tagged,
         ],
