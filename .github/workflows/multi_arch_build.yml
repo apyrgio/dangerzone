@@ -20,13 +20,11 @@ jobs:
           - linux/arm64
     steps:
       - uses: actions/checkout@v4
-      # TODO: What is that?
       - name: Prepare
         run: |
           platform=${{ matrix.platform }}
           echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
 
-      # TODO: What is that?
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
@@ -53,8 +51,8 @@ jobs:
         with:
           context: ./dangerzone/
           file: Dockerfile
-          ## TODO: May be needed in the future
-          #provenance: false
+          # Remove potentially incorrect Docker provenance.
+          provenance: false
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,"name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}",push-by-digest=true,name-canonical=true,push=true
