@@ -50,7 +50,7 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: dangerzone/
+          context: "{{defaultContext}}:dangerzone"
           ## TODO: May be needed in the future
           #provenance: false
           platforms: ${{ matrix.platform }}
