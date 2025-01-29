@@ -23,7 +23,7 @@ jobs:
 
       - name: Get current date
         id: date
-        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+        run: echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
 
       - name: Prepare
         run: |
@@ -93,7 +93,7 @@ jobs:
       - name: Compute image tag
         id: tag
         run: |
-          DATE=$(date +'%Y-%m-%d')
+          DATE=$(date +'%Y%m%d')
           TAG=$(git describe --long --first-parent | tail -c +2)
           echo "tag=${DATE}-${TAG}" >> $GITHUB_OUTPUT
 
