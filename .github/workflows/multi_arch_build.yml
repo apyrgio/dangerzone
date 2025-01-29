@@ -95,7 +95,7 @@ jobs:
         run: |
           DATE=$(date +'%Y-%m-%d')
           TAG=$(git describe --long --first-parent | tail -c +2)
-          echo "tag=${DATE}-${TAG} >> $GITHUB_OUTPUT
+          echo "tag=${DATE}-${TAG}" >> $GITHUB_OUTPUT
 
       - name: Download digests
         uses: actions/download-artifact@v4
