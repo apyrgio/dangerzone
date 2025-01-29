@@ -26,10 +26,53 @@ def get_config_dir() -> str:
 SIGNATURES_PATH = get_config_dir() / "signatures"
 
 DEFAULT_REPO = "freedomofpress/dangerzone"
+DEFAULT_BRANCH = "main"
 SIGSTORE_BUNDLE = "application/vnd.dev.sigstore.bundle.v0.3+json"
 DOCKER_MANIFEST_DISTRIBUTION = "application/vnd.docker.distribution.manifest.v2+json"
 DOCKER_MANIFEST_INDEX = "application/vnd.oci.image.index.v1+json"
 OCI_IMAGE_MANIFEST = "application/vnd.oci.image.manifest.v1+json"
+ACCEPT_MANIFESTS_HEADER="application/vnd.docker.distribution.manifest.v1+json,application/vnd.docker.distribution.manifest.v1+prettyjws,application/vnd.docker.distribution.manifest.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.index.v1+json"
+
+# NOTE: You can grab the SLSA attestation for an image/tag pair with the following
+# commands:
+#
+#     IMAGE=ghcr.io/apyrgio/dangerzone/dangerzone
+#     TAG=20250129-0.8.0-149-gbf2f5ac
+#     DIGEST=$(crane digest ${IMAGE?}:${TAG?})
+#     ATT_MANIFEST=${IMAGE?}:${DIGEST/:/-}.att
+#     ATT_BLOB=${IMAGE?}@$(crane manifest ${ATT_MANIFEST?} | jq -r '.layers[0].digest')
+#     crane blob ${ATT_BLOB?} | jq -r '.payload' | base64 -d | jq
+CUE_POLICY = r"""
+// The predicateType field must match this string
+predicateType: "https://slsa.dev/provenance/v0.2"
+
+predicate: {{
+  // This condition verifies that the builder is the builder we
+  // expect and trust. The following condition can be used
+  // unmodified. It verifies that the builder is the container
+  // workflow.
+  builder: {{
+    id: =~"^https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@refs/tags/v[0-9]+.[0-9]+.[0-9]+$"
+  }}
+  invocation: {{
+    configSource: {{
+      // This condition verifies the entrypoint of the workflow.
+      // Replace with the relative path to your workflow in your
+      // repository.
+      entryPoint: "{workflow}"
+
+      // This condition verifies that the image was generated from
+      // the source repository we expect. Replace this with your
+      // repository.
+      uri: =~"^git\\+{repo}@refs/heads/{branch}"
+      // Add a condition to check for a specific commit hash
+      digest: {{
+        sha1: "{commit}"
+      }}
+    }}
+  }}
+}}
+"""
 
 
 class RegistryClient:
@@ -73,11 +116,11 @@ class RegistryClient:
         """Get manifest information for a specific tag"""
         manifest_url = f"{self._image_url}/manifests/{tag}"
         headers = {
-            "Accept": DOCKER_MANIFEST_DISTRIBUTION,
+            "Accept": ACCEPT_MANIFESTS_HEADER,
             "Authorization": f"Bearer {self.get_auth_token()}",
         }
-        if extra_headers:
-            headers.update(extra_headers)
+        # if extra_headers:
+        #     headers.update(extra_headers)
 
         response = requests.get(manifest_url, headers=headers)
         response.raise_for_status()
@@ -85,12 +128,7 @@ class RegistryClient:
 
     def list_manifests(self, tag):
         return (
-            self.get_manifest(
-                tag,
-                {
-                    "Accept": DOCKER_MANIFEST_INDEX,
-                },
-            )
+            self.get_manifest(tag)
             .json()
             .get("manifests")
         )
@@ -139,7 +177,7 @@ class RegistryClient:
         tag_manifest_hash = self.get_manifest_hash(tag, tag_manifest_content)
 
         # This will get us a "list" of manifests...
-        manifests = self.list_manifests(f"sha256-{tag_manifest_hash}")
+        manifests = self.list_manifests(f"sha256-{tag_manifest_hash}.att")
 
         # ... from which we want the sigstore bundle
         bundle_manifest_mediatype, bundle_manifest_digest = (
@@ -149,7 +187,8 @@ class RegistryClient:
             raise Error("Not able to find sigstore bundle manifest info")
 
         bundle_manifest = self.get_manifest(
-            bundle_manifest_digest, extra_headers={"Accept": bundle_manifest_mediatype}
+            bundle_manifest_digest,
+            #extra_headers={"Accept": bundle_manifest_mediatype}
         ).json()
 
         # From there, we will get the attestation in a blob.
@@ -166,35 +205,28 @@ def _write(file, content):
     file.flush()
 
 
-def verify_attestation(
-    registry_client: RegistryClient, image_tag: str, expected_repo: str
-):
+def verify_attestation(image: str, policy: str):
     """
     Look up the image attestation to see if the image has been built
     on Github runners, and from a given repository.
     """
-    manifest, bundle = registry_client.get_attestation(image_tag)
-
     # Put the value in files and verify with cosign
-    with (
-        NamedTemporaryFile(mode="wb") as manifest_json,
-        NamedTemporaryFile(mode="wb") as bundle_json,
-    ):
-        _write(manifest_json, manifest)
-        _write(bundle_json, bundle)
+    with NamedTemporaryFile(mode="w", suffix=".cue") as policy_f:
+        _write(policy_f, policy)
 
         # Call cosign with the temporary file paths
         cmd = [
             "cosign",
-            "verify-blob-attestation",
-            "--bundle",
-            bundle_json.name,
-            "--new-bundle-format",
+            "verify-attestation",
+            "--type",
+            "slsaprovenance",
+            "--policy",
+            policy_f.name,
             "--certificate-oidc-issuer",
             "https://token.actions.githubusercontent.com",
             "--certificate-identity-regexp",
-            f"^https://github.com/{expected_repo}/.github/workflows/release-container-image.yml@refs/heads/test/image-publication-cosign",
-            manifest_json.name,
+            "^https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@refs/tags/v[0-9]+.[0-9]+.[0-9]+$",
+            image,
         ]
 
         result = subprocess.run(cmd, capture_output=True)
@@ -370,6 +402,10 @@ def verify_local_image_signature(image, pubkey):
     return True
 
 
+def generate_cue_policy(repo, workflow, commit, branch):
+    return CUE_POLICY.format(repo=repo, workflow=workflow, commit=commit, branch=branch)
+
+
 def get_image_hash(image):
     """
     Returns a image hash from a local image name
@@ -490,11 +526,26 @@ def get_manifest(image, tag):
 @main.command()
 @click.argument("image")
 @click.option(
+    "--commit",
+    required=True,
+    help="The Git commit the image was built from",
+)
+@click.option(
+    "--workflow",
+    default=".github/workflows/multi_arch_build.yml",
+    help="The path of the GitHub actions workflow this image was created from",
+)
+@click.option(
     "--repo",
     default=DEFAULT_REPO,
     help="The github repository to check the attestation for",
 )
-def attest(image: str, repo: str):
+@click.option(
+    "--branch",
+    default=DEFAULT_BRANCH,
+    help="The Git branch that the image was built from",
+)
+def attest(image: str, commit: str, workflow: str, repo: str, branch: str):
     """
     Look up the image attestation to see if the image has been built
     on Github runners, and from a given repository.
@@ -506,12 +557,19 @@ def attest(image: str, repo: str):
     registry, org, package, tag = parse_image_location(image)
     tag = tag or "latest"
 
-    client = RegistryClient(registry, org, package)
-    verified = verify_attestation(client, tag, repo)
+    full_repo = f"https://github.com/{repo}"
+    policy = generate_cue_policy(full_repo, workflow, commit, branch)
+
+    verified = verify_attestation(image, policy)
     if verified:
         click.echo(
-            f"🎉 The image available at `{client.image}:{tag}` has been built by Github Runners from the `{repo}` repository"
+            f"🎉 Successfully verified image '{image}' and its associated claims:"
         )
+        click.echo(f"- ✅ SLSA Level 3 provenance")
+        click.echo(f"- ✅ GitHub repo: {repo}")
+        click.echo(f"- ✅ GitHub actions workflow: {workflow}")
+        click.echo(f"- ✅ Git branch: {branch}")
+        click.echo(f"- ✅ Git commit: {commit}")
 
 
 if __name__ == "__main__":
