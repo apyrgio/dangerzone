@@ -20,6 +20,11 @@ jobs:
           - linux/arm64
     steps:
       - uses: actions/checkout@v4
+
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
       - name: Prepare
         run: |
           platform=${{ matrix.platform }}
@@ -51,8 +56,10 @@ jobs:
         with:
           context: ./dangerzone/
           file: Dockerfile
-          # Remove potentially incorrect Docker provenance.
-          provenance: false
+          build-args: |
+            DEBIAN_ARCHIVE_DATE=${{ steps.date.outputs.date }}
+          ## Remove potentially incorrect Docker provenance.
+          #provenance: false
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,"name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}",push-by-digest=true,name-canonical=true,push=true
@@ -76,9 +83,20 @@ jobs:
     needs:
       - build
     outputs:
-      image: ${{ steps.image.outputs.image }}
       digest: ${{ steps.image.outputs.digest }}
+      image: ${{ steps.image.outputs.image }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          DATE=$(date +'%Y-%m-%d')
+          TAG=$(git describe --long --first-parent | tail -c +2)
+          echo "tag=${DATE}-${TAG} >> $GITHUB_OUTPUT
+
       - name: Download digests
         uses: actions/download-artifact@v4
         with:
@@ -96,22 +114,22 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+      #- name: Docker meta
+      #  id: meta
+      #  uses: docker/metadata-action@v5
+      #  with:
+      #    images: |
+      #      ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+      #    tags: |
+      #      type=ref,event=branch
+      #      type=ref,event=pr
+      #      type=semver,pattern={{version}}
+      #      type=semver,pattern={{major}}.{{minor}}
 
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests
         run: |
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+          docker buildx imagetools create ${{ steps.tag.outputs.tag }} \
             $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
 
       - name: Inspect image
@@ -121,7 +139,7 @@ jobs:
           # available to the inputs of a reusable workflow call.
           image_name="${REGISTRY}/${IMAGE_NAME}"
           echo "image=$image_name" >> "$GITHUB_OUTPUT"
-          docker buildx imagetools inspect ${image_name}:${{ steps.meta.outputs.version }}
+          docker buildx imagetools inspect ${image_name}:${{ steps.tag.outputs.tag }}
           digest=$(docker buildx imagetools inspect ${image_name}:${{ steps.meta.outputs.version }} --format "{{json .Manifest}}" | jq -r '.digest')
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
@@ -136,8 +154,8 @@ jobs:
       packages: write # for uploading attestations.
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.0.0
     with:
-      image: ${{ needs.merge.outputs.image }}
       digest: ${{ needs.merge.outputs.digest }}
+      image: ${{ needs.merge.outputs.image }}
       registry-username: ${{ github.actor }}
     secrets:
       registry-password: ${{ secrets.GITHUB_TOKEN }}
