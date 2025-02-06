@@ -18,6 +18,11 @@ DIFFOCI_PATH = (
 )
 IMAGE_NAME = "dangerzone.rocks/dangerzone"
 
+if platform.system() in ["Darwin", "Windows"]:
+    CONTAINER_RUNTIME = "docker"
+elif platform.system() == "Linux":
+    CONTAINER_RUNTIME = "podman"
+
 
 def run(*args):
     """Simple function that runs a command, validates it, and returns the output"""
@@ -80,9 +85,10 @@ def diffoci_download():
     DIFFOCI_PATH.chmod(DIFFOCI_PATH.stat().st_mode | stat.S_IEXEC)
 
 
-def diffoci_diff(source, local_target):
+def diffoci_diff(runtime, source, local_target, platform=None):
     """Diff the source image against the recently built target image using diffoci."""
-    target = f"podman://{local_target}"
+    target = f"{runtime}://{local_target}"
+    platform_args = [] if not platform else ["--platform", platform]
     try:
         return run(
             str(DIFFOCI_PATH),
@@ -91,6 +97,7 @@ def diffoci_diff(source, local_target):
             target,
             "--semantic",
             "--verbose",
+            *platform_args,
         )
     except subprocess.CalledProcessError as e:
         error = e.stdout.decode()
@@ -99,14 +106,29 @@ def diffoci_diff(source, local_target):
         )
 
 
-def build_image(tag, use_cache=False):
+def build_image(
+    tag,
+    use_cache=False,
+    platform=None,
+    runtime=None,
+    date=None,
+    buildx=False
+):
     """Build the Dangerzone container image with a special tag."""
+    platform_args = [] if not platform else ["--platform", platform]
+    runtime_args = [] if not runtime else ["--runtime", runtime]
+    date_args = [] if not date else ["--debian-archive-date", date]
+    buildx_args = [] if not buildx else ["--buildx"]
     run(
         "python3",
         "./install/common/build-image.py",
         "--no-save",
         "--use-cache",
         str(use_cache),
+        *date_args,
+        *platform_args,
+        *runtime_args,
+        *buildx_args,
         "--tag",
         tag,
     )
@@ -116,11 +138,27 @@ def parse_args():
     image_tag = git_determine_tag()
     # TODO: Remove the local "podman://" prefix once we have started pushing images to a
     # remote.
-    default_image_name = f"podman://{IMAGE_NAME}:{image_tag}"
+    default_image_name = f"{IMAGE_NAME}:{image_tag}"
 
     parser = argparse.ArgumentParser(
         prog=sys.argv[0],
         description="Dev script for verifying container image reproducibility",
+    )
+    parser.add_argument(
+        "--buildx",
+        action="store_true",
+        help="Use the buildx platform of Docker or Podman",
+    )
+    parser.add_argument(
+        "--platform",
+        default=None,
+        help=f"The platform for building the image (default: current platform)",
+    )
+    parser.add_argument(
+        "--runtime",
+        choices=["docker", "podman"],
+        default=CONTAINER_RUNTIME,
+        help=f"The container runtime for building the image (default: {CONTAINER_RUNTIME})",
     )
     parser.add_argument(
         "--source",
@@ -137,6 +175,17 @@ def parse_args():
         action="store_true",
         help="Whether to reuse the build cache (off by default for better reproducibility)",
     )
+    parser.add_argument(
+        "--skip-check-commit",
+        default=False,
+        action="store_true",
+        help="Skip checking if the source image tag contains the current Git commit",
+    )
+    parser.add_argument(
+        "--debian-archive-date",
+        default=None,
+        help="Use a specific Debian snapshot archive, by its date",
+    )
     return parser.parse_args()
 
 
@@ -148,9 +197,10 @@ def main():
     )
     args = parse_args()
 
-    logger.info(f"Ensuring that current Git commit matches image '{args.source}'")
     commit = git_commit_get()
-    git_verify(commit, args.source)
+    if not args.skip_check_commit:
+        logger.info(f"Ensuring that current Git commit matches image '{args.source}'")
+        git_verify(commit, args.source)
 
     if not diffoci_is_installed():
         logger.info(f"Downloading diffoci helper from {DIFFOCI_URL}")
@@ -159,14 +209,21 @@ def main():
     tag = f"reproduce-{commit}"
     target = f"{IMAGE_NAME}:{tag}"
     logger.info(f"Building container image and tagging it as '{target}'")
-    build_image(tag, args.use_cache)
+    build_image(
+        tag,
+        args.use_cache,
+        args.platform,
+        args.runtime,
+        args.debian_archive_date,
+        args.buildx,
+    )
 
     logger.info(
         f"Ensuring that source image '{args.source}' is semantically identical with"
         f" built image '{target}'"
     )
     try:
-        diffoci_diff(args.source, target)
+        diffoci_diff(args.runtime, args.source, target, args.platform)
     except subprocess.CalledProcessError as e:
         raise RuntimeError(
             f"Could not reproduce image {args.source} for commit {commit}"
