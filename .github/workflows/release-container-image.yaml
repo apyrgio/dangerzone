@@ -94,6 +94,8 @@ jobs:
           provenance: false
           platforms: ${{ matrix.platform.name }}
           outputs: type=image,"name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}",rewrite-timestamp=true,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Export digest
         run: |
