@@ -77,13 +77,6 @@ def main():
         default=str(Path("share") / "container.tar"),
         help="Path to store the container image",
     )
-    # parser.add_argument(
-    #     "--compress-level",
-    #     type=int,
-    #     choices=range(0, 10),
-    #     default=9,
-    #     help="The Gzip compression level, from 0 (lowest) to 9 (highest, default)",
-    # )
     parser.add_argument(
         "--use-cache",
         type=str2bool,
@@ -130,7 +123,7 @@ def main():
 
     subprocess.run(
         [
-            "./dev_scripts/repro-build",
+            "./dev_scripts/repro-build",  # FIXME: Add issue for un-vendoring this file.
             "build",
             "--runtime",
             args.runtime,

@@ -52,7 +52,7 @@ RUN mkdir /opt/libreoffice_ext && cd /opt/libreoffice_ext \
     && rm /root/.wget-hsts
 
 # Create an unprivileged user both for gVisor and for running Dangerzone.
-# XXX: Make the shadow filed "date of last password change" a constant
+# XXX: Make the shadow field "date of last password change" a constant
 # number.
 RUN addgroup --gid 1000 dangerzone
 RUN adduser --uid 1000 --ingroup dangerzone --shell /bin/true \
