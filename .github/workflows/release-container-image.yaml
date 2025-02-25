@@ -194,6 +194,7 @@ jobs:
       - name: Reproduce the same container image
         run: |
           ./dev_scripts/reproduce-image.py \
+            --runtime docker \
             --debian-archive-date ${{ needs.build.outputs.debian_archive_date }} \
             --source ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }} \
             --platform ${{ matrix.platform.name }}
