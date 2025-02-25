@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import logging
 import pathlib
+import platform
 import stat
 import subprocess
 import sys
@@ -85,16 +86,20 @@ def diffoci_download():
     DIFFOCI_PATH.chmod(DIFFOCI_PATH.stat().st_mode | stat.S_IEXEC)
 
 
-def diffoci_diff(runtime, source, local_target, platform=None):
+def diffoci_diff(runtime, source, target, platform=None):
     """Diff the source image against the recently built target image using diffoci."""
-    target = f"{runtime}://{local_target}"
     platform_args = [] if not platform else ["--platform", platform]
+    logger.info(f"Loading image tarball in diffoci")
+    with open("share/container.tar") as f:
+        subprocess.run([str(DIFFOCI_PATH), "load"], stdin=f, check=True)
+    logger.info(f"Performing a strict diff between the two images")
     try:
         return run(
             str(DIFFOCI_PATH),
             "diff",
             source,
             target,
+            # "--semantic",
             "--verbose",
             *platform_args,
         )
@@ -116,17 +121,19 @@ def build_image(
     platform_args = [] if not platform else ["--platform", platform]
     runtime_args = [] if not runtime else ["--runtime", runtime]
     date_args = [] if not date else ["--debian-archive-date", date]
-    run(
-        "python3",
-        "./install/common/build-image.py",
-        "--no-save",
-        "--use-cache",
-        str(use_cache),
-        *date_args,
-        *platform_args,
-        *runtime_args,
-        "--tag",
-        tag,
+    subprocess.run(
+        [
+            "python3",
+            "./install/common/build-image.py",
+            "--use-cache",
+            str(use_cache),
+            *date_args,
+            *platform_args,
+            *runtime_args,
+            "--tag",
+            tag,
+        ],
+        check=True,
     )
 
 
