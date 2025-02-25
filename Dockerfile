@@ -206,7 +206,7 @@ RUN chown dangerzone:dangerzone \
 # Fix permissions in /tmp, so that it can be used by unprivileged users.
 RUN chmod 777 /new_root/tmp
 
-COPY container_helpers/entrypoint.py /
+COPY container_helpers/entrypoint.py /new_root
 
 ## Final image
 

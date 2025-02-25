@@ -40,7 +40,9 @@ jobs:
       debian_archive_date: ${{ steps.params.outputs.debian_archive_date }}
       source_date_epoch: ${{ steps.params.outputs.source_date_epoch }}
       image: ${{ steps.params.outputs.full_image_name }}
-      digest: ${{ steps.image.outputs.digest }}
+      digest_root: ${{ steps.image.outputs.digest_root }}
+      digest_amd64: ${{ steps.image.outputs.digest_amd64 }}
+      digest_arm64: ${{ steps.image.outputs.digest_arm64 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -150,25 +152,45 @@ jobs:
       - name: Inspect image
         id: image
         run: |
-          # NOTE: Set the image as an output because the `env` context is not
-          # available to the inputs of a reusable workflow call.
+          # Inspect the image
           docker buildx imagetools inspect ${{ steps.params.outputs.full_image_name }}
-          digest=$(docker buildx imagetools inspect ${{ steps.params.outputs.full_image_name }} --format "{{json .Manifest}}" | jq -r '.digest')
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          docker buildx imagetools inspect ${{ steps.params.outputs.full_image_name }} --format "{{json .Manifest}}" > manifest
+
+          # Calculate and print the digests
+          digest_root=$(jq -r .digest manifest)
+          digest_amd64=$(jq -r .manifests[0].digest manifest)
+          digest_arm64=$(jq -r .manifests[1].digest manifest)
+
+          echo "The image digests are:"
+          echo "  Root: $digest_root"
+          echo "  linux/amd64: $digest_amd64"
+          echo "  linux/arm64: $digest_arm64"
+
+          # NOTE: Set the digests as an output because the `env` context is not
+          # available to the inputs of a reusable workflow call.
+          echo "digest_root=$digest_root" >> "$GITHUB_OUTPUT"
+          echo "digest_amd64=$digest_amd64" >> "$GITHUB_OUTPUT"
+          echo "digest_arm64=$digest_arm64" >> "$GITHUB_OUTPUT"
 
   # This step calls the container workflow to generate provenance and push it to
   # the container registry.
   provenance:
     needs:
       - build
+    strategy:
+      matrix:
+        digest:
+          - root
+          - amd64
+          - arm64
     permissions:
       actions: read # for detecting the Github Actions environment.
       id-token: write # for creating OIDC tokens for signing.
       packages: write # for uploading attestations.
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.0.0
     with:
-      digest: ${{ needs.build.outputs.digest }}
-      image: ${{ needs.params.outputs.full_image_name }}
+      digest: ${{ needs.build.outputs[format('digest_{0}', matrix.digest)] }}
+      image: ${{ needs.build.outputs.image }}
       registry-username: ${{ github.actor }}
     secrets:
       registry-password: ${{ secrets.GITHUB_TOKEN }}
@@ -183,9 +205,9 @@ jobs:
       matrix:
         platform:
           - suffix: ""
-            name: "linux/amd64"
+            name: "amd64"
           - suffix: "-arm"
-            name: "linux/arm64"
+            name: "arm64"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -196,5 +218,5 @@ jobs:
           ./dev_scripts/reproduce-image.py \
             --runtime docker \
             --debian-archive-date ${{ needs.build.outputs.debian_archive_date }} \
-            --source ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }} \
-            --platform ${{ matrix.platform.name }}
+            --source ${{ needs.build.outputs.image }}@${{ needs.build.outputs[format('digest_{0}', matrix.platform.name)] }} \
+            --platform linux/${{ matrix.platform.name }}

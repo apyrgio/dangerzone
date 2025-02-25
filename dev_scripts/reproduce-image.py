@@ -200,9 +200,9 @@ def main():
         logger.info(f"Ensuring that current Git commit matches image '{args.source}'")
         git_verify(commit, args.source)
 
-    if not diffoci_is_installed():
-        logger.info(f"Downloading diffoci helper from {DIFFOCI_URL}")
-        diffoci_download()
+    # if not diffoci_is_installed():
+    #     logger.info(f"Downloading diffoci helper from {DIFFOCI_URL}")
+    #     diffoci_download()
 
     tag = f"reproduce-{commit}"
     target = f"{IMAGE_NAME}:{tag}"
@@ -216,16 +216,29 @@ def main():
     )
 
     logger.info(
-        f"Ensuring that source image '{args.source}' is semantically identical with"
+        f"Ensuring that source image '{args.source}' is identical with"
         f" built image '{target}'"
     )
+    # try:
+    #     diffoci_diff(args.runtime, args.source, target, args.platform)
+    # except subprocess.CalledProcessError as e:
+    #     raise RuntimeError(
+    #         f"Could not reproduce image {args.source} for commit {commit}"
+    #     )
     try:
-        diffoci_diff(args.runtime, args.source, target, args.platform)
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(
-            f"Could not reproduce image {args.source} for commit {commit}"
+        run(
+            "./dev_scripts/repro-build",
+            "analyze",
+            "--show-contents",
+            "share/container.tar",
+            "--expected-image-digest",
+            args.source.split("@")[1],
         )
-        breakpoint()
+    except subprocess.CalledProcessError as e:
+        error = e.stdout.decode()
+        raise RuntimeError(
+            f"Could not rebuild an identical image to {args.source}. Report:\n{error}"
+        )
 
     logger.info(f"Successfully reproduced image '{args.source}' from commit '{commit}'")
 
