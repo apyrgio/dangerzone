@@ -1,5 +1,4 @@
 import argparse
-import gzip
 import platform
 import secrets
 import subprocess

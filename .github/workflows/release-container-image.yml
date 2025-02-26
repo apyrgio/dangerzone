@@ -104,7 +104,7 @@ jobs:
             SOURCE_DATE_EPOCH=${{ needs.prepare.outputs.source_date_epoch }}
           provenance: false
           platforms: linux/amd64,linux/arm64
-          outputs: type=image,"name=${{ needs.prepare.outputs.image }}",push-by-digest=true,push=true,rewrite-timestamp=true,name-canonical=true
+          outputs: type=image,"name=${{ env.REGISTRY  }}/${{ env.IMAGE_NAME  }}",push-by-digest=true,push=true,rewrite-timestamp=true,name-canonical=true
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
