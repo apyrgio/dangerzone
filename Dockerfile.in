@@ -207,6 +207,9 @@ RUN chown dangerzone:dangerzone \
 RUN chmod 777 /new_root/tmp
 
 COPY container_helpers/entrypoint.py /new_root
+# HACK: For reasons that we are not sure yet, we need to explicitly specify the
+# modification time of this file.
+RUN touch -d ${DEBIAN_ARCHIVE_DATE}Z /new_root/entrypoint.py
 
 ## Final image
 
