@@ -1,0 +1,88 @@
+name: Scan latest app and container
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  schedule:
+    - cron: '0 0 * * *' # Run every day at 00:00 UTC.
+  workflow_dispatch:
+
+jobs:
+  security-scan-container:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install container build dependencies
+        run: |
+          sudo apt install pipx
+          pipx install poetry
+          pipx inject poetry poetry-plugin-export
+          poetry install --only package
+      - name: Bump date of Debian snapshot archive
+        run: |
+          date=$(date "+%Y%m%d")
+          sed -i "s/DEBIAN_ARCHIVE_DATE=[0-9]\+/DEBIAN_ARCHIVE_DATE=${date}/" Dockerfile.env
+          make Dockerfile
+      - name: Build container image
+        run: python3 ./install/common/build-image.py --runtime docker --no-save
+      - name: Get image tag
+        id: tag
+        run: echo "tag=$(cat share/image-id.txt)" >> $GITHUB_OUTPUT
+      # NOTE: Scan first without failing, else we won't be able to read the scan
+      # report.
+      - name: Scan container image (no fail)
+        uses: anchore/scan-action@v6
+        id: scan_container
+        with:
+          image: "dangerzone.rocks/dangerzone:${{ steps.tag.outputs.tag }}"
+          fail-build: false
+          only-fixed: false
+          severity-cutoff: critical
+      - name: Upload container scan report
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.scan_container.outputs.sarif }}
+          category: container
+      - name: Inspect container scan report
+        run: cat ${{ steps.scan_container.outputs.sarif }}
+      - name: Scan container image
+        uses: anchore/scan-action@v6
+        with:
+          image: "dangerzone.rocks/dangerzone:${{ steps.tag.outputs.tag }}"
+          fail-build: true
+          only-fixed: false
+          severity-cutoff: critical
+
+  security-scan-app:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      # NOTE: Scan first without failing, else we won't be able to read the scan
+      # report.
+      - name: Scan application (no fail)
+        uses: anchore/scan-action@v6
+        id: scan_app
+        with:
+          path: "."
+          fail-build: false
+          only-fixed: false
+          severity-cutoff: critical
+      - name: Upload application scan report
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.scan_app.outputs.sarif }}
+          category: app
+      - name: Inspect application scan report
+        run: cat ${{ steps.scan_app.outputs.sarif }}
+      - name: Scan application
+        uses: anchore/scan-action@v6
+        with:
+          path: "."
+          fail-build: true
+          only-fixed: false
+          severity-cutoff: critical
