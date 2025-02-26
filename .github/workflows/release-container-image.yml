@@ -186,6 +186,7 @@ jobs:
   # the container registry.
   provenance:
     needs:
+      - prepare
       - merge
     strategy:
       matrix:
