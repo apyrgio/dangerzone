@@ -103,7 +103,6 @@ jobs:
             DEBIAN_ARCHIVE_DATE=${{ needs.prepare.outputs.debian_archive_date }}
             SOURCE_DATE_EPOCH=${{ needs.prepare.outputs.source_date_epoch }}
           provenance: false
-          platforms: linux/amd64,linux/arm64
           outputs: type=image,"name=${{ env.REGISTRY  }}/${{ env.IMAGE_NAME  }}",push-by-digest=true,push=true,rewrite-timestamp=true,name-canonical=true
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -165,7 +164,7 @@ jobs:
         run: |
           # Inspect the image
           docker buildx imagetools inspect ${{ needs.prepare.outputs.image }}
-          docker buildx imagetools inspect ${{ steps.prepare.outputs.image }} --format "{{json .Manifest}}" > manifest
+          docker buildx imagetools inspect ${{ needs.prepare.outputs.image }} --format "{{json .Manifest}}" > manifest
 
           # Calculate and print the digests
           digest_root=$(jq -r .digest manifest)
