@@ -16,7 +16,7 @@ jobs:
     with:
       output: image
       push: true
-      meta-images: ghcr.io/freedomofpress/dangerzone-test-github-builder
+      meta-images: ghcr.io/apyrgio/dangerzone-test-github-builder
       context: dangerzone
       file: Dockerfile
     secrets:
